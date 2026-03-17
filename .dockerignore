@@ -1,0 +1,51 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# CI / CD
+.gitlab-ci.yml
+
+# Python artifacts
+__pycache__
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info
+.eggs
+dist
+build
+*.egg
+
+# Virtual environments
+.venv
+venv
+env
+.env
+
+# Tests & coverage (not needed at runtime)
+app/tests
+.pytest_cache
+.coverage
+htmlcov
+
+# Dev tooling
+.editorconfig
+.pre-commit-config.yaml
+.flake8
+pyproject.toml
+setup.cfg
+
+# Docs
+README.md
+docs
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo

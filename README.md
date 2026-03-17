@@ -1,93 +1,320 @@
-# gitlab-ci-ec2-deploy
+# Flask REST API — Docker Containerization
 
+A production-ready Python Flask REST API demonstrating Docker best practices:
+multi-stage builds, non-root user, minimal Alpine base image, and a full
+GitLab CI/CD pipeline that pushes to Docker Hub (and optionally AWS ECR).
 
+---
 
-## Getting started
+## Project structure
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
+```text
+.
+├── app/
+│   ├── app.py               # Flask REST API (items CRUD + health)
+│   ├── requirements.txt     # Runtime dependencies
+│   ├── requirements-dev.txt # Dev/test dependencies
+│   └── tests/
+│       └── test_app.py      # pytest test suite
+├── Dockerfile               # Multi-stage build (builder → final)
+├── .dockerignore            # Excludes tests, caches, IDE files
+├── docker-compose.yml       # One-command local stack
+├── Makefile                 # Automation shortcuts
+└── .gitlab-ci.yml           # CI: test → build → push (Hub + ECR)
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/spaceman5789/gitlab-ci-ec2-deploy.git
-git branch -M main
-git push -uf origin main
+
+---
+
+## Quick start
+
+### Prerequisites
+
+- Docker ≥ 24
+
+### Build & run
+
+```bash
+# Build
+make build
+
+# Start (detached)
+make run
+
+# Test the API
+curl http://localhost:5000/health
+curl http://localhost:5000/api/items
+curl -X POST http://localhost:5000/api/items \
+     -H "Content-Type: application/json" \
+     -d '{"name":"widget","description":"my first item"}'
+
+# View logs
+make logs
+
+# Stop
+make stop
 ```
 
-## Integrate with your tools
+### Using Docker Compose
 
-* [Set up project integrations](https://gitlab.com/spaceman5789/gitlab-ci-ec2-deploy/-/settings/integrations)
+```bash
+docker compose up -d
+docker compose down
+```
 
-## Collaborate with your team
+---
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## API endpoints
 
-## Test and Deploy
+| Method | Path              | Description       |
+|--------|-------------------|-------------------|
+| GET    | `/`               | Service info      |
+| GET    | `/health`         | Health check      |
+| GET    | `/api/items`      | List all items    |
+| POST   | `/api/items`      | Create an item    |
+| GET    | `/api/items/<id>` | Get item by ID    |
+| DELETE | `/api/items/<id>` | Delete item by ID |
 
-Use the built-in continuous integration in GitLab.
+---
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+## Image size comparison
 
-***
+The table below documents the impact of each optimisation step.
+All measurements use the same application code and dependencies.
 
-# Editing this README
+| Base image                   | Strategy              | Approx. size | Notes                                    |
+|------------------------------|-----------------------|:------------:|------------------------------------------|
+| `python:3.12`                | Single-stage (Debian) |  ~1 050 MB   | Default; ships with gcc, pip cache, docs |
+| `python:3.12-slim`           | Single-stage (slim)   |   ~ 200 MB   | Strips most OS packages; still Debian    |
+| `python:3.12-alpine`         | Single-stage (Alpine) |   ~  75 MB   | musl libc; smallest usable base          |
+| `python:3.12-alpine` (final) | **Multi-stage**       |   ~  55 MB   | Build tools absent; only runtime files   |
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+To reproduce locally after building:
 
-## Suggestions for a good README
+```bash
+docker image inspect flask-api:latest \
+  --format '{{printf "%.1f MB" (divf .Size 1048576)}}'
+```
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+### Why multi-stage wins
 
-## Name
-Choose a self-explaining name for your project.
+A single-stage Alpine build still contains:
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+- `gcc`, `musl-dev`, `libffi-dev` (needed only to compile wheels)
+- The `pip` download cache
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Multi-stage: Stage 1 installs everything; Stage 2 copies only the installed
+packages (`/install`) and application source. Build toolchain never lands in
+the final image → smaller attack surface + smaller push/pull.
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+---
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+## Dockerfile — line-by-line explanation
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```dockerfile
+# ── Stage 1: Builder ─────────────────────────────────────────────────────────
+FROM python:3.12-alpine AS builder
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+`AS builder` names the stage so Stage 2 can reference it with `COPY --from=builder`.
+Alpine is chosen because it ships a minimal OS (~5 MB) compared to Debian (~80 MB).
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+```dockerfile
+WORKDIR /app
+```
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+Creates `/app` and sets it as the CWD. Avoids relative-path bugs; cleaner than
+prefixing every path manually.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+```dockerfile
+RUN apk add --no-cache gcc musl-dev libffi-dev
+```
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Some Python wheels (e.g. cryptography) compile C code at install time.
+`--no-cache` skips writing the apk package index to disk, preventing an extra
+cache layer.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```dockerfile
+COPY app/requirements.txt .
+```
 
-## License
-For open source projects, say how it is licensed.
+Copies **only** the dependency manifest first. Docker caches each layer; if
+`requirements.txt` hasn't changed, the expensive `pip install` layer is reused
+even when application source changes.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```dockerfile
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+```
+
+`--prefix=/install` installs to a custom path so we can copy just the
+packages to Stage 2 without gcc or musl-dev tagging along.
+`--no-cache-dir` keeps pip's download cache out of this layer.
+
+```dockerfile
+# ── Stage 2: Final ───────────────────────────────────────────────────────────
+FROM python:3.12-alpine AS final
+```
+
+Starts a **brand-new layer graph** from a clean Alpine image. Nothing from
+Stage 1 (gcc, pip cache, source tree) exists here unless explicitly copied.
+
+```dockerfile
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+```
+
+Creates a system user with no password and no login shell.
+Running as root inside a container can allow container-escape exploits to
+reach the host with root privileges — a CIS Docker Benchmark violation.
+
+```dockerfile
+WORKDIR /app
+```
+
+Sets the working directory for subsequent instructions and the final CMD.
+
+```dockerfile
+COPY --from=builder /install /usr/local
+```
+
+Copies the pre-built Python packages from Stage 1.
+`/usr/local` is Python's default `sys.prefix`, so packages are immediately
+importable without touching `PYTHONPATH`.
+
+```dockerfile
+COPY app/ .
+```
+
+Copies application source **after** the dependency layer. Source-only changes
+still benefit from the cached dependency layer above.
+
+```dockerfile
+RUN chown -R appuser:appgroup /app
+USER appuser
+```
+
+Transfers ownership before switching users (can't `chown` after dropping root).
+All subsequent instructions and the running process use `appuser`.
+
+```dockerfile
+EXPOSE 5000
+```
+
+Documents the port. Does **not** publish it — that requires `-p 5000:5000`
+at `docker run` time (or `ports:` in Compose).
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://localhost:5000/health || exit 1
+```
+
+Lets the Docker daemon (and orchestrators like ECS/K8s) determine whether
+the container is actually serving traffic. A container can be `Up` but
+unhealthy if the app crashed internally.
+
+```dockerfile
+ENV FLASK_ENV=production \
+    PORT=5000 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+```
+
+`PYTHONDONTWRITEBYTECODE` — skip `.pyc` files (unnecessary in containers).
+`PYTHONUNBUFFERED` — flush stdout/stderr immediately so logs appear in `docker logs`.
+
+```dockerfile
+CMD ["python", "-m", "gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", \
+     "--access-logfile", "-", "app:app"]
+```
+
+Uses **gunicorn** instead of Flask's built-in dev server.
+`--access-logfile -` routes access logs to stdout so they're captured by
+`docker logs` and any log aggregator attached to the container.
+
+---
+
+## GitLab CI/CD pipeline
+
+```text
+test  →  build  →  push-docker-hub  (main only)
+                →  push-ecr          (main, manual)
+```
+
+### Required CI/CD variables
+
+Go to **Settings → CI/CD → Variables** and add:
+
+| Variable               | Required for   | Notes                            |
+|------------------------|----------------|----------------------------------|
+| `DOCKER_HUB_USERNAME`  | Docker Hub     | Your Hub login name              |
+| `DOCKER_HUB_TOKEN`     | Docker Hub     | Hub access token (masked)        |
+| `AWS_ACCOUNT_ID`       | ECR (optional) | 12-digit account number          |
+| `AWS_DEFAULT_REGION`   | ECR (optional) | e.g. `us-east-1`                 |
+| `AWS_ACCESS_KEY_ID`    | ECR (optional) | IAM key with ECR push permission |
+| `AWS_SECRET_ACCESS_KEY`| ECR (optional) | (masked, protected)              |
+
+### Pipeline stages
+
+**test** — installs dev dependencies, runs `pytest` with coverage report.
+
+**build** — uses Docker-in-Docker to build the image and print its size.
+Verifies the multi-stage build produces a working image on every commit.
+
+**push-docker-hub** — builds and pushes three tags to Docker Hub:
+
+- `:latest`
+- `:<commit-sha>` — full traceability, safe to deploy by pinning SHA
+- `:<branch-slug>` — e.g. `:main`
+
+**push-ecr** *(manual, opt-in)* — pushes the same image to AWS ECR.
+Won't block the pipeline if skipped; useful for AWS-based deployments.
+
+---
+
+## Makefile targets
+
+```text
+make help            Show all targets
+make build           Build image (with cache)
+make build-no-cache  Build from scratch
+make run             Start container on :5000
+make run-dev         Interactive with source mounted
+make stop            Stop and remove container
+make restart         stop + run
+make logs            Tail live logs
+make shell           /bin/sh inside container
+make inspect         Image size + layer breakdown
+make test            pytest inside container
+make push            Push to Docker Hub
+make clean           Remove local image
+make prune           docker system prune -f
+```
+
+---
+
+## Pushing to Docker Hub manually
+
+```bash
+# Login once
+docker login -u YOUR_USERNAME
+
+# Build
+make build
+
+# Push
+DOCKER_HUB_USERNAME=YOUR_USERNAME make push
+```
+
+---
+
+## Technologies
+
+| Tool         | Version  | Role                   |
+|--------------|----------|------------------------|
+| Python       | 3.12     | Runtime                |
+| Flask        | 3.1      | Web framework          |
+| Gunicorn     | 23       | Production WSGI server |
+| Docker       | ≥ 24     | Containerisation       |
+| Alpine Linux | 3.x      | Minimal base OS        |
+| GitLab CI    | —        | CI/CD pipeline         |
+| Docker Hub   | —        | Public image registry  |
+| AWS ECR      | optional | Private image registry |
+| pytest       | 8        | Test framework         |

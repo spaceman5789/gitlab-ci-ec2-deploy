@@ -1,0 +1,124 @@
+# =============================================================================
+# GitLab CI/CD Pipeline — Flask API Docker build & push
+#
+# Required CI/CD variables (Settings → CI/CD → Variables):
+#   DOCKER_HUB_USERNAME  — your Docker Hub login
+#   DOCKER_HUB_TOKEN     — Docker Hub access token (masked, protected)
+#   AWS_ACCOUNT_ID       — 12-digit AWS account number  (ECR jobs only)
+#   AWS_DEFAULT_REGION   — e.g. us-east-1               (ECR jobs only)
+#   AWS_ACCESS_KEY_ID    — IAM key with ECR push rights  (ECR jobs only)
+#   AWS_SECRET_ACCESS_KEY                                (ECR jobs only)
+# =============================================================================
+
+stages:
+  - test
+  - build
+  - push
+
+variables:
+  IMAGE_NAME: flask-api
+  DOCKER_HUB_REPO: "${DOCKER_HUB_USERNAME}/${IMAGE_NAME}"
+  ECR_REGISTRY: "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+  ECR_REPO: "${ECR_REGISTRY}/${IMAGE_NAME}"
+  # Docker-in-Docker TLS (required since Docker 20+)
+  DOCKER_TLS_CERTDIR: "/certs"
+
+# ─── Templates ───────────────────────────────────────────────────────────────
+.docker-service: &docker-service
+  image: docker:26
+  services:
+    - docker:26-dind
+  before_script:
+    - docker info   # verify DinD is healthy
+
+
+# ─── Stage: test ─────────────────────────────────────────────────────────────
+test:
+  stage: test
+  image: python:3.12-alpine
+  before_script:
+    - pip install --no-cache-dir -r app/requirements-dev.txt
+  script:
+    - python -m pytest app/tests/ -v --tb=short --cov=app --cov-report=term-missing
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    expire_in: 7 days
+
+
+# ─── Stage: build ─────────────────────────────────────────────────────────────
+build:
+  stage: build
+  <<: *docker-service
+  script:
+    # Build and tag with the commit SHA for full traceability
+    - docker build
+        --tag "${IMAGE_NAME}:${CI_COMMIT_SHA}"
+        --tag "${IMAGE_NAME}:latest"
+        --label "org.opencontainers.image.revision=${CI_COMMIT_SHA}"
+        --label "org.opencontainers.image.source=${CI_PROJECT_URL}"
+        .
+    # Print size for the README size-comparison table
+    - |
+        SIZE=$(docker image inspect "${IMAGE_NAME}:${CI_COMMIT_SHA}" \
+               --format '{{printf "%.1f MB" (divf .Size 1048576)}}')
+        echo "Image size: ${SIZE}"
+    - docker images "${IMAGE_NAME}"
+
+
+# ─── Stage: push → Docker Hub ────────────────────────────────────────────────
+push-docker-hub:
+  stage: push
+  <<: *docker-service
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - docker info
+    - echo "${DOCKER_HUB_TOKEN}" | docker login -u "${DOCKER_HUB_USERNAME}" --password-stdin
+  script:
+    - docker build
+        --tag "${DOCKER_HUB_REPO}:latest"
+        --tag "${DOCKER_HUB_REPO}:${CI_COMMIT_SHA}"
+        --tag "${DOCKER_HUB_REPO}:${CI_COMMIT_REF_SLUG}"
+        --label "org.opencontainers.image.revision=${CI_COMMIT_SHA}"
+        --label "org.opencontainers.image.source=${CI_PROJECT_URL}"
+        .
+    - docker push "${DOCKER_HUB_REPO}:latest"
+    - docker push "${DOCKER_HUB_REPO}:${CI_COMMIT_SHA}"
+    - docker push "${DOCKER_HUB_REPO}:${CI_COMMIT_REF_SLUG}"
+  after_script:
+    - docker logout
+
+
+# ─── Stage: push → AWS ECR (optional, manual trigger) ───────────────────────
+push-ecr:
+  stage: push
+  image:
+    name: docker:26
+  services:
+    - docker:26-dind
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual   # opt-in; won't block the pipeline if skipped
+      allow_failure: true
+  before_script:
+    - docker info
+    - apk add --no-cache aws-cli
+    - aws ecr get-login-password --region "${AWS_DEFAULT_REGION}" |
+        docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+    # Create repository if it doesn't exist yet
+    - aws ecr describe-repositories --repository-names "${IMAGE_NAME}" --region "${AWS_DEFAULT_REGION}" ||
+        aws ecr create-repository --repository-name "${IMAGE_NAME}" --region "${AWS_DEFAULT_REGION}"
+  script:
+    - docker build
+        --tag "${ECR_REPO}:latest"
+        --tag "${ECR_REPO}:${CI_COMMIT_SHA}"
+        .
+    - docker push "${ECR_REPO}:latest"
+    - docker push "${ECR_REPO}:${CI_COMMIT_SHA}"
+  after_script:
+    - docker logout "${ECR_REGISTRY}"
