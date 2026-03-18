@@ -3,7 +3,7 @@
 #
 # Required CI/CD variables (Settings → CI/CD → Variables):
 #   DOCKERHUB_USERNAME  — your Docker Hub login
-#   DOCKERHUB_TOKEN     — Docker Hub access token (masked, protected)
+#   DOCKER_HUB_TOKEN     — Docker Hub access token (masked, protected)
 #   AWS_ACCOUNT_ID       — 12-digit AWS account number  (ECR jobs only)
 #   AWS_DEFAULT_REGION   — e.g. us-east-1               (ECR jobs only)
 #   AWS_ACCESS_KEY_ID    — IAM key with ECR push rights  (ECR jobs only)
@@ -79,7 +79,7 @@ push-docker-hub:
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
     - docker info
-    - echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+    - echo "${DOCKER_HUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
   script:
     - docker build
         --tag "${DOCKERHUB_REPO}:latest"
