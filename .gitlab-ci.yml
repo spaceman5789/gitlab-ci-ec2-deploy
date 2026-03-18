@@ -14,6 +14,7 @@ stages:
   - test
   - build
   - push
+  - deploy 
 
 variables:
   IMAGE_NAME: flask-api
@@ -122,3 +123,21 @@ push-ecr:
     - docker push "${ECR_REPO}:${CI_COMMIT_SHA}"
   after_script:
     - docker logout "${ECR_REGISTRY}"
+
+
+deploy:
+  stage: deploy
+  image: alpine:latest
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+  - apk add --no-cache openssh-client    # убрал лишнюю скобку )
+  - echo "$EC2_SSH_KEY" > /tmp/ssh_key
+  - chmod 600 /tmp/ssh_key
+  script:
+  - ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key $EC2_USER@$EC2_HOST "
+      docker pull ${DOCKER_HUB_REPO}:latest &&
+      docker stop flask-api || true &&
+      docker rm flask-api || true &&
+      docker run -d --name flask-api -p 80:5000 ${DOCKER_HUB_REPO}:latest
+    "
