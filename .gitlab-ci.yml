@@ -2,8 +2,8 @@
 # GitLab CI/CD Pipeline — Flask API Docker build & push
 #
 # Required CI/CD variables (Settings → CI/CD → Variables):
-#   DOCKER_HUB_USERNAME  — your Docker Hub login
-#   DOCKER_HUB_TOKEN     — Docker Hub access token (masked, protected)
+#   DOCKERHUB_USERNAME  — your Docker Hub login
+#   DOCKERHUB_TOKEN     — Docker Hub access token (masked, protected)
 #   AWS_ACCOUNT_ID       — 12-digit AWS account number  (ECR jobs only)
 #   AWS_DEFAULT_REGION   — e.g. us-east-1               (ECR jobs only)
 #   AWS_ACCESS_KEY_ID    — IAM key with ECR push rights  (ECR jobs only)
@@ -18,7 +18,7 @@ stages:
 
 variables:
   IMAGE_NAME: flask-api
-  DOCKER_HUB_REPO: "${DOCKER_HUB_USERNAME}/${IMAGE_NAME}"
+  DOCKERHUB_REPO: "${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
   ECR_REGISTRY: "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
   ECR_REPO: "${ECR_REGISTRY}/${IMAGE_NAME}"
   # Docker-in-Docker TLS (required since Docker 20+)
@@ -79,18 +79,18 @@ push-docker-hub:
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
     - docker info
-    - echo "${DOCKER_HUB_TOKEN}" | docker login -u "${DOCKER_HUB_USERNAME}" --password-stdin
+    - echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
   script:
     - docker build
-        --tag "${DOCKER_HUB_REPO}:latest"
-        --tag "${DOCKER_HUB_REPO}:${CI_COMMIT_SHA}"
-        --tag "${DOCKER_HUB_REPO}:${CI_COMMIT_REF_SLUG}"
+        --tag "${DOCKERHUB_REPO}:latest"
+        --tag "${DOCKERHUB_REPO}:${CI_COMMIT_SHA}"
+        --tag "${DOCKERHUB_REPO}:${CI_COMMIT_REF_SLUG}"
         --label "org.opencontainers.image.revision=${CI_COMMIT_SHA}"
         --label "org.opencontainers.image.source=${CI_PROJECT_URL}"
         .
-    - docker push "${DOCKER_HUB_REPO}:latest"
-    - docker push "${DOCKER_HUB_REPO}:${CI_COMMIT_SHA}"
-    - docker push "${DOCKER_HUB_REPO}:${CI_COMMIT_REF_SLUG}"
+    - docker push "${DOCKERHUB_REPO}:latest"
+    - docker push "${DOCKERHUB_REPO}:${CI_COMMIT_SHA}"
+    - docker push "${DOCKERHUB_REPO}:${CI_COMMIT_REF_SLUG}"
   after_script:
     - docker logout
 
@@ -136,8 +136,8 @@ deploy:
   - chmod 600 /tmp/ssh_key
   script:
   - ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key $EC2_USER@$EC2_HOST "
-      docker pull ${DOCKER_HUB_REPO}:latest &&
+      docker pull ${DOCKERHUB_REPO}:latest &&
       docker stop flask-api || true &&
       docker rm flask-api || true &&
-      docker run -d --name flask-api -p 80:5000 ${DOCKER_HUB_REPO}:latest
+      docker run -d --name flask-api -p 80:5000 ${DOCKERHUB_REPO}:latest
     "
