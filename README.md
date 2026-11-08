@@ -1,5 +1,11 @@
 # CI/CD Pipeline: Flask API → Docker Hub → AWS EC2
 
+![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-000000?logo=flask&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![GitLab CI](https://img.shields.io/badge/GitLab%20CI-FC6D26?logo=gitlab&logoColor=white)
+![AWS EC2](https://img.shields.io/badge/AWS%20EC2-FF9900?logo=amazonec2&logoColor=white)
+
 [![Pipeline Status](https://gitlab.com/spaceman5789/gitlab-ci-ec2-deploy/badges/main/pipeline.svg)](https://gitlab.com/spaceman5789/gitlab-ci-ec2-deploy/-/pipelines)
 [![Coverage](https://gitlab.com/spaceman5789/gitlab-ci-ec2-deploy/badges/main/coverage.svg)](https://gitlab.com/spaceman5789/gitlab-ci-ec2-deploy/-/pipelines)
 
@@ -279,4 +285,8 @@ make stop     # Stop the container
 docker-compose up -d
 ```
 
+---
 
+## Author
+
+**Denis Nazarov** — DevOps Engineer · [GitHub](https://github.com/spaceman5789) · [Portfolio](https://denzo-portfolio.site)
